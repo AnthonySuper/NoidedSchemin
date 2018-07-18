@@ -80,12 +80,16 @@ let rec evaluate env term =
     | LBool b -> LBool b
     | LNil -> LNil
     | LAtom a -> lookupVar env a
+    | LList [LAtom "quote"; quoted] -> quoted
     | LList [LAtom "if"; pred; good; bad] ->
         let predRes = evaluate env pred 
         match predRes with 
         | LBool true -> evaluate env good 
         | LBool false -> evaluate env bad 
         | _ -> failwith "Invalid expr, if didn't recieve true or false"
+    | LList [LAtom "begin"; rest] -> evalBody env rest
+    | LList (LAtom "begin" :: rest) ->
+        LList rest |> evalBody env 
     | LList [LAtom "write"; l] -> LString (sprintf "%A" l)
     | LList (LAtom "write" :: rest) -> List.map (sprintf "%A" >> LString) rest |> LList
     | LList [LAtom "let"; LList defn; expr] -> 
@@ -108,14 +112,18 @@ let rec evaluate env term =
         | LLambda (fn, boundEnv) ->
             fn.fn !boundEnv applied
         | _ -> failwithf "Attempted to apply arguments to %A which isn't a function" funVar
-
 and evalBody env term =
     match term with
+    (* Single-argument define, which just defines a value lol *)
     | LList ((LList [LAtom "define"; LAtom name; defnRest]) :: rest) ->
         let evaluated = evaluate env defnRest 
         let newEnv = pushEnv env [(name, evaluated)]
         LList rest |> evaluate newEnv
-    | _ -> evaluate env term
+    | LList ((LList [LAtom "define"; LList (LAtom name :: args); body]) :: rest) ->
+        let lambda = makeLambda args body
+        let newEnv = pushEnv env [(name, LLambda ({fn = lambda}, ref env))] |> tieEnvKnot 
+        evalBody newEnv (LList rest)
+    | x -> evaluate env x
 and makeLambda decl body env args =
     if List.length args <> List.length decl then
         failwithf "Lambda expected %i arguments, got %i" (List.length decl) (List.length args)
@@ -167,6 +175,10 @@ let builtinFuncs : (string * LispVal) list  =
         "||", binaryBool (||);
         "and", binaryBool (&&);
         "or", binaryBool (||);
+        "print", fun _ arg -> 
+            Seq.iter (showLisp >> printfn "%s") arg
+            List.head arg
+
     ] |> List.map (fun (a, b) -> (a, LFunc {fn = b}))
 
 

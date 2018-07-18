@@ -73,6 +73,10 @@ let lispParser : Parser<_> =
 
 do lispValueRef := lispParser 
 
+
+let lispProgramParser : Parser<_> =
+    sepBy lispParser spaces1 |>> fun x -> LList (LAtom "begin" :: x)
+
 let test p str =
     match run p str with
     | Success(result, _, _)   -> sprintf "Success: %A" result
